@@ -45,24 +45,29 @@ same), `≠` (all different). Grey cells have no rule.
   Tapping a tray domino picks it up and tapping it again turns it a quarter
   turn (a|b, a over b, b|a, b over a); then tap a cell to lay it there the way
   it is shown (shifted or turned a quarter if it doesn't fit, preferring empty
-  cells). Tapping a placed domino turns it a quarter turn clockwise around the
-  half you tapped (that half stays, the other swings right → below → left →
-  above), skipping blocked spots; nothing happens if it has nowhere to go. Press and hold takes it back to the tray, or keep moving to
-  drag it on. Anything a domino lands on goes back to the tray. Drags use the
-  React Native responder system (no gesture library), so they ship as an
+  cells). Tapping a placed domino picks it up: it is drawn a little bigger and
+  higher, with a blue edge and a shadow. Tapping it again turns it a quarter
+  turn clockwise around the half you tapped (that half stays, the other swings
+  right → below → left → above), skipping blocked spots; nothing happens if it
+  has nowhere to go. Tapping anything else (an empty cell, the gaps, the
+  background) sets it down, and also lets go of a picked-up tray domino. Turns
+  swing round smoothly (an Animated rotation about the half that stays, or the
+  tray slot's centre). Press and hold takes a placed domino back to the tray,
+  or keep moving to drag it on. Anything a domino lands on goes back to the
+  tray. Clear puts every domino back (undoable, so it doesn't ask). Drags use
+  the React Native responder system (no gesture library), so they ship as an
   over-the-air update.
 - **Same solution, flipped.** A domino with both halves in one region (or both
   in grey cells) can be flipped without changing anything, so either way round
   counts as correct. The solver and the logic treat the two as one placement.
-- **Mistakes** are dominoes put somewhere the (unique) solution doesn't have
-  them. Pips has no error detection and no auto-finish: with few dominoes, a
-  red domino (or a button that appears only when everything so far is right)
-  gives the answer away. So there is no mistake counter in the header, Rewind
-  is enabled whenever there is history (pressed with no mistake on the board,
-  it says so and changes nothing), and only a hint points out a wrong domino.
-  Mistakes are still counted for the completion stats. A region whose cells
-  are all covered and whose rule fails shows a red label: that follows from
-  the rules, not the solution.
+- **No mistakes.** Pips is played by trial and error, so a domino put
+  somewhere the solution doesn't have it is not a mistake: nothing is counted,
+  there is no Rewind, and the completion dialog shows no mistake count. There
+  is no error detection or auto-finish either: with few dominoes, a red domino
+  (or a button that appears only when everything so far is right) gives the
+  answer away. Only a hint points out a wrong domino. A region whose cells are
+  all covered and whose rule fails shows a red label: that follows from the
+  rules, not the solution.
 - **Logic** works on the set of placements still possible (domino, two cells,
   orientation). Tiers: 0 Region Rule, Only Fit (a cell with one placement
   left), Only Spot (a domino with one spot left), Only Partner; 1 Counting
@@ -100,7 +105,7 @@ same), `≠` (all different). Grey cells have no rule.
 | Difficulty by technique | Medium / Hard / Extra Hard / Extreme. A puzzle's level is the hardest technique the grader needs (table below). |
 | Timer | Pauses when you tap it, open settings, or background the app. Best time per difficulty is kept, but only puzzles solved **without hints** can set it. Every solve still counts toward the solved total. |
 | Row / column / box highlight | Always on for the selected cell. |
-| Identical numbers | Selecting a filled 8 highlights every other 8. The highlight stays when you then select an empty cell (handy for clearing that digit's candidates); tap the selected empty cell again to clear it. Placing a digit makes it the highlighted one. |
+| Identical numbers | Selecting a filled 8 highlights every other 8. The highlight stays when you then select an empty cell (handy for clearing that digit's candidates). Tapping the selected cell again lets go of it (an empty one also clears the highlight). With no cell selected, the number pad highlights instead of entering: tap 3 to highlight every 3 and every 3 pencil mark, even before any 3 is placed (the key stays tinted); tap it again to clear. Placing a digit makes it the highlighted one. |
 | Candidate hint | Finds the easiest deduction from **your current pencil marks** and explains it. The board highlights the pattern (yellow), the reason candidates (green/orange) and what to remove (red, struck through). *Apply* carries it out. |
 | Placing a digit | Removes it from its peers' pencil marks. If you later overwrite, tap-clear or erase it, it goes back to the peers that had it (where still legal), so fixing a wrong digit doesn't leave its candidates missing. |
 | Undo | Steps back one action. |
@@ -108,6 +113,8 @@ same), `≠` (all different). Grey cells have no rule.
 | Auto-finish | Offered when no placed digit is wrong and singles alone complete the grid. Fills cells one by one. |
 | Settings: error detection | Wrong digits turn red, a cell turns red when you remove its correct candidate, and both count in the mistake counter in the header. |
 | Settings: auto candidates (on by default) | Every empty cell is kept filled with its legal candidates; you remove them as you eliminate. Turning it on mid-game fills the empty cells. |
+| Settings: arithmetic (off by default) | Calcudoku and Kakuro, with auto candidates on. Off, auto candidates leave out only digits already placed in the same row, column or run, and working out the sums is yours (hints then start from those plain candidates, so Cage/Run Combinations steps show up). On, they also leave out digits no cage or run combination allows; turning it on mid-game removes those from the marks. |
+| Calcudoku cells | Every cell leaves room for a cage label, so digits and pencil marks are the same size in every cell. |
 | Settings: highlight matching candidates | Selecting a filled 8 also circles every 8 pencil mark. |
 | Home screen | The hero card shows a live miniature of the game in progress (or the last level you started) with Resume / Start puzzle. Levels are one grouped list; a 2×2 box fills up as difficulty rises. Wordmark and level names use Bricolage Grotesque. |
 | Also | Light/dark/system theme, haptics, autosave + Continue, Android back button. |
@@ -155,7 +162,11 @@ They can be changed in `TECHNIQUES` in `src/engine/techniques.ts`. Re-run
 
 Cells with no pencil marks are treated as holding every legal candidate. Cells
 whose marks are incomplete (you've been adding them one by one) are treated the
-same way. Neither is reported as a mistake.
+same way. Neither is reported as a mistake. Applying a hint starts each changed
+cell from the candidates the hint reasoned about (the ones it shows on the
+board), so an incomplete cell gets its full set minus the eliminated digits;
+only taking the digit out of your own marks would change nothing, and the same
+hint would come back forever.
 
 ## What counts as a mistake (for Rewind)
 

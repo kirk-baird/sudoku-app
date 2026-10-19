@@ -9,7 +9,7 @@ import { DIFFICULTY_NAMES, Difficulty } from './src/engine/common';
 import { PipsPuzzle } from './src/engine/pips';
 import { TentsPuzzle } from './src/engine/tents';
 import { FONT_ASSETS } from './src/fonts';
-import { GameState, newGame } from './src/game/gameState';
+import { GameState, candidateRules, newGame } from './src/game/gameState';
 import { PipsGameState, newPipsGame } from './src/game/pipsState';
 import { nextPuzzle } from './src/game/puzzleSource';
 import { TentsGameState, newTentsGame } from './src/game/tentsState';
@@ -104,7 +104,8 @@ function Root() {
       g = newPipsGame(p.id, d, p.payload as PipsPuzzle);
     } else {
       const a = GAMES[ty].adapter!(p.payload);
-      g = newGame(p.id, d, a.givens, a.solution, settings.autoCandidates, { type: ty, payload: p.payload, rules: a.rules });
+      const rules = candidateRules(a.rules, settings.cageMath);
+      g = newGame(p.id, d, a.givens, a.solution, settings.autoCandidates, { type: ty, payload: p.payload, rules });
     }
     setGenerating(null);
     setGame(g);

@@ -3,6 +3,17 @@
 The version is shown at the bottom of Settings. Bump it before every update
 (see "Versioning and updates" in README.md). Pushing a new version to master publishes it to the preview channel.
 
+## 1.2.2
+
+- Pips: tap a placed domino to pick it up (it lifts, with a blue edge and a shadow), tap it again to turn it, drag it to move it
+- Pips: turning a domino swings it round smoothly, on the board and in the tray
+- Pips: tap empty space to put down a picked-up domino
+- Pips: Clear button puts every domino back in the tray; Rewind is gone and wrong placements are no longer counted as mistakes
+- Calcudoku: digits and pencil marks are the same size in every cell, cage label or not
+- Calcudoku and Kakuro: auto candidates leave the sums to you; a new setting, "Auto candidates: arithmetic", brings them back
+- With no cell selected, tapping a number highlights it on the board, even before it is placed; tap the selected cell again to let go of it
+- Hints no longer repeat forever when a cell's pencil marks are incomplete (Calcudoku, sudoku and Kakuro)
+
 ## 1.2.1
 
 - Pips: drag dominoes from the tray onto the board, move placed ones, or drag them off to put them back

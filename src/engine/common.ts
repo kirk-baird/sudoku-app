@@ -46,6 +46,12 @@ export interface DigitRules {
   peers: number[][]; // cells that may not share a digit with this one (used for highlighting and auto-removing candidates)
   /** Candidates allowed by the placed digits and the puzzle's constraints (bitmask per cell; 0 if filled or not playable). */
   legalCandidates(values: number[]): number[];
+  /**
+   * Calcudoku and Kakuro: candidates allowed by the placed peers alone,
+   * without the cage or run arithmetic. Auto candidates use these unless the
+   * player turns that arithmetic on.
+   */
+  basicCandidates?(values: number[]): number[];
 }
 
 export interface DifficultyInfo {

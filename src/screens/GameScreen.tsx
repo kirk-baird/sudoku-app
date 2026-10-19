@@ -12,7 +12,7 @@ import { NumberPad, ToolButton } from '../components/Controls';
 import { Clock, CompletionDialog, GameHeader, RulesSheet, SafeModal } from '../components/GameChrome';
 import { HintPanel } from '../components/HintPanel';
 import { Difficulty, PuzzleHint } from '../engine/common';
-import { GameState, firstMistakeIndex, makeGameReducer, removedCorrectCells, wrongCells } from '../game/gameState';
+import { GameState, candidateRules, firstMistakeIndex, makeGameReducer, removedCorrectCells, wrongCells } from '../game/gameState';
 import { GAMES, SudokuPayload } from '../games/registry';
 import { GameType } from '../games/types';
 import { useSettings } from '../settings';
@@ -44,7 +44,10 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
   const type = initial.type ?? 'classic';
   const def = GAMES[type];
   const adapter = useMemo(() => def.adapter!(initial.payload), [def, initial.payload]);
-  const reducer = useMemo(() => makeGameReducer(adapter.rules), [adapter]);
+  // Cage/run arithmetic only counts with auto candidates on: marks you make yourself are yours.
+  const cageMath = settings.autoCandidates && settings.cageMath;
+  const rules = useMemo(() => candidateRules(adapter.rules, cageMath), [adapter, cageMath]);
+  const reducer = useMemo(() => makeGameReducer(rules), [rules]);
   const [game, dispatch] = useReducer(reducer, initial);
   const [selected, setSelected] = useState<number | null>(null);
   const [lastDigit, setLastDigit] = useState(0);
@@ -106,10 +109,10 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
     };
   }, [save]);
 
-  // ---- auto candidate mode switched on mid-game ----
+  // ---- auto candidate mode (or cage arithmetic) switched on mid-game ----
   useEffect(() => {
     if (settings.autoCandidates) dispatch({ type: 'fillCandidates' });
-  }, [settings.autoCandidates]);
+  }, [settings.autoCandidates, cageMath]);
 
   // ---- completion ----
   const recorded = useRef(false);
@@ -176,15 +179,28 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
       if (paused || autoFilling || !adapter.rules.playable[i]) return;
       setHint(null);
       const v = gameRef.current.values[i];
+      if (i === selected) {
+        // Tap the selected cell again to let go of it (an empty one also clears
+        // the highlight); the number pad then highlights digits instead.
+        if (!v) setLastDigit(0);
+        setSelected(null);
+        return;
+      }
       if (v) setLastDigit(v);
-      else if (i === selected) setLastDigit(0); // tap the selected empty cell again to clear
       setSelected(i);
     },
     [paused, autoFilling, selected, adapter],
   );
 
   const input = (d: number, asPencil: boolean) => {
-    if (busy || selected == null) return;
+    if (busy) return;
+    if (selected == null) {
+      // No cell selected: the pad highlights a digit, placed or not.
+      setHint(null);
+      setLastDigit((x) => (x === d ? 0 : d));
+      buzz('tap');
+      return;
+    }
     setHint(null);
     const g = gameRef.current;
     if (g.givens[selected] || !adapter.rules.playable[selected]) return;
@@ -220,7 +236,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
 
   const showHint = () => {
     if (busy) return;
-    const h = adapter.hint(game.values, game.pencil, removedCorrectCells(game));
+    const h = adapter.hint(game.values, game.pencil, removedCorrectCells(game), cageMath);
     setHint(h);
     setSelected(null);
     if (h.kind !== 'solved') dispatch({ type: 'hintShown' });
@@ -228,7 +244,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
 
   const applyHint = () => {
     if (!hint) return;
-    if (hint.kind === 'step') dispatch({ type: 'applyStep', step: hint.step });
+    if (hint.kind === 'step') dispatch({ type: 'applyStep', step: hint.step, cands: hint.cands });
     if (hint.kind === 'reveal') dispatch({ type: 'applyStep', step: { placements: [{ cell: hint.cell, digit: hint.digit }], eliminations: [] } });
     setHint(null);
     buzz('tap');
@@ -367,6 +383,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
           counts={counts}
           totals={adapter.digitTotals}
           pencilMode={pencilMode}
+          highlighted={selected == null ? highlightDigit : 0}
           onDigit={(d) => input(d, pencilMode)}
           onLongDigit={(d) => input(d, !pencilMode)}
           disabled={busy}

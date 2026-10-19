@@ -40,7 +40,8 @@ export interface DigitAdapter {
   solution: number[];
   /** Expected count of each digit (index = digit) for the number pad, or null to hide counts. */
   digitTotals: number[] | null;
-  hint(values: number[], pencil: number[], removedCorrect: number[]): PuzzleHint;
+  /** cageMath (default on): auto candidates include the cage/run arithmetic (Calcudoku, Kakuro; see DigitRules.basicCandidates). */
+  hint(values: number[], pencil: number[], removedCorrect: number[], cageMath?: boolean): PuzzleHint;
   finish(values: number[]): CellDigit[] | null;
 }
 
@@ -142,7 +143,7 @@ export function calcudokuAdapter(p: calc.CalcudokuPuzzle): DigitAdapter {
     givens: new Array(n * n).fill(0),
     solution: p.solution,
     digitTotals: countDigits(p.solution, n),
-    hint: (values, pencil, removed) => tidyHint(calc.findHint(p, values, pencil, removed)),
+    hint: (values, pencil, removed, cageMath) => tidyHint(calc.findHint(p, values, pencil, removed, cageMath)),
     finish: (values) => calcudokuSingles(p, values),
   };
 }
@@ -161,7 +162,7 @@ export function kakuroAdapter(p: kakuro.KakuroPuzzle): DigitAdapter {
     givens: new Array(p.rows * p.cols).fill(0),
     solution: p.solution,
     digitTotals: null,
-    hint: (values, pencil, removed) => tidyHint(kakuro.findHint(p, values, pencil, removed)),
+    hint: (values, pencil, removed, cageMath) => tidyHint(kakuro.findHint(p, values, pencil, removed, cageMath)),
     finish: (values) => kakuroSingles(p, values),
   };
 }
@@ -410,7 +411,7 @@ export const GAMES: Record<GameType, GameDef> = {
       'Cover every cell of the board with the dominoes in the tray. Each domino is used exactly once and covers two neighbouring cells; turn it any way you like.',
       'Coloured regions have a rule on their label: a number means the pips in the region add up to it, < and > mean the total is less or more than the number, = means every half in the region shows the same number, and ≠ means they are all different.',
       'Grey cells have no rule. A domino can lie across two regions.',
-      'Drag a domino from the tray onto the board, or tap it and then a cell. Tap a tray domino again to turn it before you lay it; tap either half of a placed domino to turn it clockwise around that half. Drag a placed domino to move it, or off the board (or press and hold) to put it back in the tray.',
+      'Drag a domino from the tray onto the board, or tap it and then a cell. Tap a tray domino again to turn it before you lay it. Tap a placed domino to pick it up, then tap either half to turn it clockwise around that half; tap anywhere else to set it down. Drag a placed domino to move it, or off the board (or press and hold) to put it back in the tray. Clear puts every domino back.',
     ],
     tips: [
       'Start with the tightest rules: a two-cell region that adds up to 12 needs two 6s, and one that adds up to 0 needs two blanks.',

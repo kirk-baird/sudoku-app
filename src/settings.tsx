@@ -4,6 +4,7 @@ import { loadJSON, saveJSON } from './storage';
 export interface Settings {
   errorDetection: boolean; // show wrong digits in red + mistakes counter
   autoCandidates: boolean; // keep every empty cell filled with legal candidates
+  cageMath: boolean; // calcudoku/kakuro: auto candidates also apply the cage/run sums
   highlightCandidates: boolean; // selecting an 8 also highlights 8 pencil marks
   haptics: boolean;
   theme: 'system' | 'light' | 'dark';
@@ -12,6 +13,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   errorDetection: true,
   autoCandidates: true,
+  cageMath: false,
   highlightCandidates: true,
   haptics: true,
   theme: 'system',

@@ -1,21 +1,21 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Animated, AppState, Platform, Pressable, StyleSheet, Text, View, ViewStyle, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ToolButton } from '../components/Controls';
 import { Clock, CompletionDialog, GameHeader, RulesSheet, SafeModal } from '../components/GameChrome';
 import { HintPanel } from '../components/HintPanel';
-import { DRAG_SLOP, DominoTray, PipsBoard, TrayDrag, TurnedDomino, pipsBoardSize, pipsGeometry } from '../components/PipsBoard';
+import { DRAG_SLOP, DominoTray, PipsBoard, PipsSpin, TrayDrag, TurnedDomino, pipsBoardSize, pipsGeometry } from '../components/PipsBoard';
 import { Difficulty, PuzzleHint } from '../engine/common';
 import { Spot, findHint, hintMove } from '../engine/pips';
 import {
   PipsGameState,
   Turn,
-  firstPipsMistake,
   nextTurn,
   occupancy,
   pipsReducer,
+  quarterTurns,
   spotTurn,
   tapSpot,
   turnSpot,
@@ -63,14 +63,16 @@ export function PipsScreen({
   const [lift, setLift] = useState<Lift | null>(null); // domino being dragged
   const [target, setTarget] = useState<Spot | null>(null); // where it would land
   const longPressed = useRef<{ k: number; spot: Spot } | null>(null); // taken off the board by a long press during this touch
-  const [turned, setTurned] = useState<number | null>(null); // board domino last touched
+  const [raised, setRaised] = useState<number | null>(null); // board domino picked up: tap to turn it, drag to move it
+  const [spin, setSpin] = useState<PipsSpin | null>(null); // its last turn, animated
+  const [traySpin, setTraySpin] = useState<{ k: number; id: number } | null>(null); // the last tray domino turned
+  const spins = useRef(0);
   const [hint, setHint] = useState<PuzzleHint | null>(null);
   const [paused, setPaused] = useState(false);
   const [appActive, setAppActive] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [result, setResult] = useState<{ ms: number; isBest: boolean } | null>(null);
-  const [cleanAt, setCleanAt] = useState(-1); // history length when Rewind found nothing to undo
   const [clock] = useState(() => new Clock(initial.elapsedMs));
   const gameRef = useRef(game);
   useEffect(() => {
@@ -131,8 +133,9 @@ export function PipsScreen({
     recordCompletion('pips', game.difficulty, ms, game.hintsUsed).then(({ isBest }) => setResult({ ms, isBest }));
   }, [game.completed, game.difficulty, game.hintsUsed, clock, buzz]);
 
-  const mistakeIdx = useMemo(() => firstPipsMistake(game), [game]);
   const busy = paused || game.completed;
+  // Bumped back to the tray by another domino: no longer raised.
+  const raisedOn = raised !== null && game.place[raised] ? raised : null;
 
   const onPressCell = useCallback(
     (cell: number) => {
@@ -143,20 +146,39 @@ export function PipsScreen({
         const spot = tapSpot(g, held, cell, turns[held]);
         if (!spot) return;
         dispatch({ type: 'put', k: held, spot });
-        setTurned(held);
         setHeld(null);
+        setRaised(null);
         buzz('tap');
         return;
       }
       const k = occupancy(g.place).get(cell);
-      if (k === undefined) return;
+      if (k === undefined) {
+        setRaised(null); // an empty cell puts the raised domino down
+        return;
+      }
+      // The first tap picks a placed domino up; tapping it again turns it.
+      if (raised !== k) {
+        setRaised(k);
+        setSpin(null);
+        buzz('tap');
+        return;
+      }
+      const cur = g.place[k]!;
       const spot = turnSpot(g, k, cell); // around the half that was tapped
-      if (spot) dispatch({ type: 'put', k, spot });
-      setTurned(k);
+      if (spot) {
+        dispatch({ type: 'put', k, spot });
+        setSpin({ k, pivot: cell, deg: 90 * quarterTurns(g.payload, cell, cur, spot), id: ++spins.current });
+      }
       buzz('tap');
     },
-    [busy, held, turns, buzz],
+    [busy, held, raised, turns, buzz],
   );
+
+  /** A tap on empty space puts down whatever is picked up. */
+  const putDown = () => {
+    setHeld(null);
+    setRaised(null);
+  };
 
   const onLongPressCell = useCallback(
     (cell: number) => {
@@ -170,7 +192,7 @@ export function PipsScreen({
       setTurns((ts) => withTurn(ts, k, spotTurn(g.payload, spot)));
       setHint(null);
       dispatch({ type: 'put', k, spot: null });
-      setTurned(null);
+      setRaised(null);
       buzz('tap');
     },
     [busy, buzz],
@@ -180,15 +202,18 @@ export function PipsScreen({
   const onPressTray = (k: number) => {
     if (busy) return;
     setHint(null);
-    setTurned(null);
-    if (held === k) setTurns((ts) => withTurn(ts, k, nextTurn(ts[k])));
-    else setHeld(k);
+    setRaised(null);
+    if (held === k) {
+      setTurns((ts) => withTurn(ts, k, nextTurn(ts[k])));
+      setTraySpin({ k, id: ++spins.current });
+    } else setHeld(k);
     buzz('tap');
   };
 
   const showHint = () => {
     if (busy) return;
     setHeld(null);
+    setRaised(null);
     const h = findHint(p, game.place);
     setHint(h);
     if (h.kind !== 'solved') dispatch({ type: 'hintShown' });
@@ -197,10 +222,7 @@ export function PipsScreen({
   const applyHint = () => {
     if (hint?.kind === 'step') {
       const mv = hintMove(p, hint.step);
-      if (mv) {
-        dispatch({ type: 'put', k: mv.k, spot: mv.spot });
-        setTurned(mv.k);
-      }
+      if (mv) dispatch({ type: 'put', k: mv.k, spot: mv.spot });
     }
     setHint(null);
   };
@@ -259,7 +281,7 @@ export function PipsScreen({
     setLift(l);
     setHeld(null);
     setHint(null);
-    setTurned(null);
+    setRaised(null);
     measure();
     follow(x, y);
     buzz('tap');
@@ -275,7 +297,6 @@ export function PipsScreen({
     const spot = landing(l, drop.x, drop.y);
     if (spot) {
       dispatch({ type: 'put', k: l.k, spot });
-      setTurned(l.k);
       buzz('tap');
     } else if (l.from === 'board' && offBoard(drop.x, drop.y)) {
       // Dragged off the board: back to the tray, lying the way it was.
@@ -323,7 +344,8 @@ export function PipsScreen({
   const holding = held !== null;
 
   return (
-    <View ref={rootRef} style={[styles.root, NO_SELECT]} onLayout={measure}>
+    // Taps that no domino, cell or button takes land here and put things down.
+    <View ref={rootRef} style={[styles.root, NO_SELECT]} onLayout={measure} onStartShouldSetResponder={() => true} onResponderRelease={putDown}>
       <SafeAreaView style={[styles.root, { backgroundColor: t.bg }]} edges={['top', 'bottom', 'left', 'right']}>
         <GameHeader
           def={def}
@@ -366,7 +388,8 @@ export function PipsScreen({
               puzzle={p}
               place={game.place}
               cellSize={cellSize}
-              selected={holding ? null : turned}
+              raised={holding ? null : raisedOn}
+              spin={spin}
               hintStep={hintStep}
               problemCells={problemCells}
               hidden={paused}
@@ -389,12 +412,7 @@ export function PipsScreen({
           {hint ? (
             <HintPanel
               hint={hint}
-              canRewind={mistakeIdx >= 0}
               onApply={applyHint}
-              onRewind={() => {
-                setHint(null);
-                dispatch({ type: 'rewind' });
-              }}
               onClose={() => setHint(null)}
               bodyMaxHeight={Math.max(130, height * 0.26)}
               theme={t}
@@ -406,6 +424,7 @@ export function PipsScreen({
                   puzzle={p}
                   place={game.place}
                   turns={turns}
+                  spin={traySpin}
                   selected={held}
                   lifted={lift?.k ?? null}
                   half={trayHalf}
@@ -416,11 +435,11 @@ export function PipsScreen({
                 />
               ) : null}
               <Text style={[styles.help, { color: t.textMuted }]}>
-                {cleanAt === game.history.length
-                  ? 'No mistakes on the board to rewind.'
-                  : holding
-                    ? 'Tap it again to turn it, then tap a cell, or drag it onto the board.'
-                    : 'Drag a domino onto the board, or tap it and then a cell. Tap a half of a placed domino to turn it around that half; drag it off or hold to take it back.'}
+                {holding
+                  ? 'Tap it again to turn it, then tap a cell, or drag it onto the board.'
+                  : raisedOn !== null
+                    ? 'Picked up: tap a half to turn the domino around it, drag it to move it or off the board to put it back. Tap anywhere else to set it down.'
+                    : 'Drag a domino onto the board, or tap it and then a cell. Tap a placed domino to pick it up and turn it; hold it to take it back.'}
               </Text>
             </View>
           )}
@@ -432,23 +451,21 @@ export function PipsScreen({
             label="Undo"
             onPress={() => {
               setHint(null);
-              setHeld(null);
+              putDown();
               dispatch({ type: 'undo' });
             }}
             disabled={!game.history.length || busy}
             theme={t}
           />
           <ToolButton
-            icon="backup-restore"
-            label="Rewind"
+            icon="broom"
+            label="Clear"
             onPress={() => {
               setHint(null);
-              setHeld(null);
-              if (mistakeIdx < 0) setCleanAt(game.history.length);
-              else dispatch({ type: 'rewind' });
+              putDown();
+              dispatch({ type: 'clear' }); // undoable, so no need to ask
             }}
-            // Enabled like Undo: lighting up only after a mistake would give it away.
-            disabled={!game.history.length || busy}
+            disabled={game.place.every((sp) => !sp) || busy}
             theme={t}
           />
           <ToolButton icon="lightbulb-on-outline" label="Hint" onPress={showHint} disabled={busy} theme={t} />
@@ -464,7 +481,7 @@ export function PipsScreen({
           isBest={!!result?.isBest}
           difficulty={game.difficulty}
           ms={result?.ms ?? 0}
-          mistakes={game.mistakes}
+          mistakes={null} // trial and error is how Pips is played
           hintsUsed={game.hintsUsed}
           onHome={onExit}
           onNewGame={() => onNewGame('pips', game.difficulty)}

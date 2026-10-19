@@ -23,6 +23,7 @@ export interface CellProps {
   candidateGrid: 3 | 4;
   maxDigit: number;
   label?: string; // calcudoku cage label
+  labelSpace?: boolean; // the board has cage labels: every cell leaves room for one, so digits and candidates match in size
   mini?: boolean;
   theme: Theme;
   onPress?: (index: number) => void;
@@ -31,8 +32,9 @@ export interface CellProps {
 function CellView(p: CellProps) {
   const { size, theme: t } = p;
   const k = p.candidateGrid;
-  const labelH = p.label && !p.mini ? Math.max(9, size * 0.26) : 0;
+  const labelH = p.labelSpace && !p.mini ? Math.max(9, size * 0.26) : 0;
   const candSize = (size - labelH) / k;
+  const placeBox = labelH ? (size - labelH) * 0.92 : size * 0.82; // below the cage label
   const valueColor = p.given ? t.digitGiven : p.showError ? t.digitError : t.digitUser;
   const glyph = (d: number) => p.symbols[d] ?? String(d);
   const digits = Array.from({ length: k * k }, (_, i) => i + 1).filter((d) => d <= Math.max(p.maxDigit, k * k));
@@ -55,7 +57,7 @@ function CellView(p: CellProps) {
           style={[
             styles.value,
             {
-              fontSize: size * (p.label ? 0.52 : 0.62),
+              fontSize: size * (p.labelSpace ? 0.52 : 0.62),
               lineHeight: size * 0.9,
               color: valueColor,
               fontWeight: p.given ? '600' : '500',
@@ -69,10 +71,10 @@ function CellView(p: CellProps) {
         <View
           style={[
             styles.place,
-            { backgroundColor: t.hintPlace, width: size * 0.82, height: size * 0.82, borderRadius: size * 0.2 },
+            { backgroundColor: t.hintPlace, width: placeBox, height: placeBox, borderRadius: placeBox * 0.24, marginTop: labelH },
           ]}
         >
-          <Text style={[styles.value, { fontSize: size * 0.56, lineHeight: size * 0.8, color: t.text }]}>
+          <Text style={[styles.value, { fontSize: placeBox * 0.68, lineHeight: placeBox * 0.98, color: t.text }]}>
             {glyph(p.placeDigit)}
           </Text>
         </View>

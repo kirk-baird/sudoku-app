@@ -55,7 +55,7 @@ export type GameAction =
   | { type: 'erase'; cell: number; autoCandidates: boolean }
   | { type: 'undo' }
   | { type: 'rewind' }
-  | { type: 'applyStep'; step: AppliedStep }
+  | { type: 'applyStep'; step: AppliedStep; cands?: Cands } // cands: what the hint reasoned about
   | { type: 'autoPlace'; placement: CellDigit }
   | { type: 'fillCandidates' }
   | { type: 'hintShown' }
@@ -70,6 +70,15 @@ export const CLASSIC_RULES: DigitRules = {
   peers: CLASSIC.peers,
   legalCandidates: (values) => legalCandidates(CLASSIC, values),
 };
+
+/**
+ * The rules auto candidates follow: without the arithmetic, a puzzle that
+ * offers basic candidates (Calcudoku, Kakuro) only rules out digits already
+ * placed in the same row, column or run.
+ */
+export function candidateRules(rules: DigitRules, cageMath: boolean): DigitRules {
+  return cageMath || !rules.basicCandidates ? rules : { ...rules, legalCandidates: rules.basicCandidates };
+}
 
 export function newGame(
   id: string,
@@ -250,9 +259,16 @@ function reduce(rules: DigitRules, s: GameState, a: GameAction): GameState {
       const values = s.values.slice();
       const eff = rules.legalCandidates(s.values);
       const pencil = s.pencil.slice();
+      // Start from the candidates the hint reasoned about: a cell whose marks
+      // were incomplete was treated as holding every legal candidate, so only
+      // removing the digit from its own marks would change nothing and the
+      // same hint would come back.
+      const touched = new Set<number>();
       for (const e of a.step.eliminations) {
         if (values[e.cell]) continue;
-        pencil[e.cell] = (pencil[e.cell] || eff[e.cell]) & ~bit(e.digit);
+        if (!touched.has(e.cell)) pencil[e.cell] = a.cands?.[e.cell] ?? (pencil[e.cell] || eff[e.cell]);
+        touched.add(e.cell);
+        pencil[e.cell] &= ~bit(e.digit);
       }
       const mistakes: Mistake[] = [];
       for (const p of a.step.placements) mistakes.push(...placeInto(rules, values, pencil, s.solution, p.cell, p.digit));

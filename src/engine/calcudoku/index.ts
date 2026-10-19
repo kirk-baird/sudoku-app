@@ -12,7 +12,7 @@ import {
 } from '../common';
 import { Rng } from '../rng';
 import { CageOptions, DEFAULT_CAGE_OPTIONS, cagePuzzle, randomLatin } from './generator';
-import { CalcCage, CalcudokuPuzzle, getCtx, legalCandidates } from './model';
+import { CalcCage, CalcudokuPuzzle, getCtx, latinCandidates, legalCandidates } from './model';
 import { State, TECHNIQUES, TECHNIQUE_BY_ID, applyStep, findStep } from './techniques';
 
 export type { CageOp, CalcCage, CalcudokuPuzzle } from './model';
@@ -74,6 +74,7 @@ export function rulesFor(p: CalcudokuPuzzle): DigitRules {
     playable: new Array<boolean>(N2).fill(true),
     peers: ctx.peers,
     legalCandidates: (values: number[]) => legalCandidates(ctx, values),
+    basicCandidates: (values: number[]) => latinCandidates(ctx, values),
   };
 }
 
@@ -128,7 +129,13 @@ export function singlesFinish(p: CalcudokuPuzzle, values: number[]): CellDigit[]
 
 const cellListOf = (cells: number[], n: number) => cells.map((c) => rcName(c, n)).join(', ');
 
-export function findHint(p: CalcudokuPuzzle, values: number[], pencil: number[], removedCorrect: number[] = []): PuzzleHint {
+/**
+ * Hint from the player's pencil marks. Cells without marks (or with marks
+ * missing the answer) are treated as holding every candidate: with
+ * `cageMath`, those the cage arithmetic allows, else every digit not yet in
+ * the row or column (so the hint can teach the cage logic).
+ */
+export function findHint(p: CalcudokuPuzzle, values: number[], pencil: number[], removedCorrect: number[] = [], cageMath = true): PuzzleHint {
   const { size: n, solution } = p;
   const ctx = ctxOf(p);
   if (values.every((v, i) => v === solution[i])) return { kind: 'solved', message: 'The puzzle is solved!' };
@@ -145,7 +152,7 @@ export function findHint(p: CalcudokuPuzzle, values: number[], pencil: number[],
     };
   }
 
-  const legal = legalCandidates(ctx, values);
+  const legal = cageMath ? legalCandidates(ctx, values) : latinCandidates(ctx, values);
   const cands = values.map((v, i) => (v ? 0 : pencil[i] ? pencil[i] : legal[i]));
   const missing = cands.map((m, i) => (!values[i] && !hasBit(m, solution[i]) ? i : -1)).filter((i) => i >= 0);
   // checked against the marks themselves: an emptied cell still lacks the digit

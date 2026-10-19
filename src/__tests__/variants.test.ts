@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTY_ORDER, Difficulty } from '../engine/common';
+import { DIFFICULTY_ORDER, Difficulty, bit, hasBit } from '../engine/common';
 import { DIFFICULTY_TIER, applyStep, grade } from '../engine/logic';
 import { makeRng } from '../engine/rng';
 import { solve } from '../engine/solver';
@@ -9,8 +9,8 @@ import { generateVariant, randomJigsawRegions } from '../engine/generator';
 import { State, TECHNIQUES, findStep } from '../engine/techniques';
 import { PipsPuzzle, findHint as pipsHint, isSolved as pipsSolved } from '../engine/pips';
 import { TENT, GRASS, TentsPuzzle } from '../engine/tents';
-import { gameReducer, makeGameReducer, newGame } from '../game/gameState';
-import { Turn, firstPipsMistake, newPipsGame, nextTurn, occupancy, pipsReducer, spotTurn, tapSpot, turnSpot, turnedSpot } from '../game/pipsState';
+import { candidateRules, gameReducer, makeGameReducer, newGame, removedCorrectCells } from '../game/gameState';
+import { Turn, newPipsGame, nextTurn, occupancy, pipsReducer, quarterTurns, spotTurn, tapSpot, turnSpot, turnedSpot } from '../game/pipsState';
 import { firstTentsMistake, newTentsGame, tentsReducer } from '../game/tentsState';
 import { GAMES, SudokuPayload } from '../games/registry';
 import { GAME_TYPES } from '../games/types';
@@ -160,6 +160,89 @@ describe('registry', () => {
   });
 });
 
+describe('hints on incomplete pencil marks', () => {
+  // Marks added one by one (auto candidates off) often miss the answer; the
+  // hint then reasons about every candidate, and applying it must change the
+  // board, or the same hint comes back forever.
+  for (const type of ['calcudoku', 'classic', 'kakuro'] as const) {
+    it(`walks ${type} puzzles to the end without repeating a hint`, () => {
+      const def = GAMES[type];
+      const rng = makeRng(7);
+      for (const d of ['medium', 'hard'] as const) {
+        for (const e of def.bank()[d].slice(0, 6)) {
+          const payload = def.fromBank(e);
+          const a = def.adapter!(payload);
+          const run = makeGameReducer(a.rules);
+          let s = newGame('x', d, a.givens, a.solution, false, { type, payload, rules: a.rules });
+          const pencil = s.pencil.map((_, i) => {
+            if (s.values[i] || !a.rules.playable[i] || rng() < 0.5) return 0;
+            let m = 0;
+            for (let x = 1; x <= a.rules.maxDigit; x++) if (x !== a.solution[i] && rng() < 0.4) m |= bit(x);
+            return m;
+          });
+          s = { ...s, pencil };
+          let prev = '';
+          for (let n = 0; n < 500 && !s.completed; n++) {
+            const h = a.hint(s.values, s.pencil, removedCorrectCells(s));
+            const key = JSON.stringify(h);
+            expect(key).not.toBe(prev);
+            prev = key;
+            if (h.kind === 'step') s = run(s, { type: 'applyStep', step: h.step, cands: h.cands });
+            else if (h.kind === 'reveal') s = run(s, { type: 'applyStep', step: { placements: [{ cell: h.cell, digit: h.digit }], eliminations: [] } });
+            else break;
+          }
+          expect(s.completed).toBe(true);
+        }
+      }
+    });
+  }
+});
+
+describe('auto candidates without the arithmetic', () => {
+  for (const type of ['calcudoku', 'kakuro'] as const) {
+    const def = GAMES[type];
+    const payload = def.fromBank(def.bank().hard[0]);
+    const a = def.adapter!(payload);
+    const empty = a.solution.map(() => 0);
+    const full = ((1 << (a.rules.maxDigit + 1)) - 1) & ~1;
+    const cells = a.solution.map((_, i) => i).filter((i) => a.rules.playable[i]);
+
+    it(`${type}: leaves the sums to the player unless asked`, () => {
+      const basic = candidateRules(a.rules, false).legalCandidates(empty);
+      const math = candidateRules(a.rules, true).legalCandidates(empty);
+      expect(cells.every((i) => basic[i] === full)).toBe(true);
+      expect(cells.some((i) => math[i] !== full)).toBe(true);
+      math.forEach((m, i) => expect(m & ~basic[i]).toBe(0));
+      // Placed digits still leave their peers.
+      const values = empty.slice();
+      values[cells[0]] = a.solution[cells[0]];
+      const after = candidateRules(a.rules, false).legalCandidates(values);
+      for (const q of a.rules.peers[cells[0]]) expect(hasBit(after[q], a.solution[cells[0]])).toBe(false);
+    });
+
+    it(`${type}: hints from the sums when the marks leave them out`, () => {
+      const g = newGame('x', 'hard', a.givens, a.solution, true, { type, payload, rules: candidateRules(a.rules, false) });
+      const h = a.hint(g.values, g.pencil, [], false);
+      expect(h.kind).toBe('step');
+      if (h.kind === 'step') expect(h.step.eliminations.length + h.step.placements.length).toBeGreaterThan(0);
+      // Without marks, the hint starts from the same plain candidates.
+      expect(JSON.stringify(a.hint(g.values, empty, [], false))).toBe(JSON.stringify(h));
+    });
+
+    it(`${type}: hints walk a puzzle from plain candidates to the end`, () => {
+      const run = makeGameReducer(candidateRules(a.rules, false));
+      let s = newGame('x', 'hard', a.givens, a.solution, true, { type, payload, rules: candidateRules(a.rules, false) });
+      for (let n = 0; n < 1000 && !s.completed; n++) {
+        const h = a.hint(s.values, s.pencil, removedCorrectCells(s), false);
+        expect(h.kind === 'step' || h.kind === 'reveal').toBe(true);
+        if (h.kind === 'step') s = run(s, { type: 'applyStep', step: h.step, cands: h.cands });
+        else if (h.kind === 'reveal') s = run(s, { type: 'applyStep', step: { placements: [{ cell: h.cell, digit: h.digit }], eliminations: [] } });
+      }
+      expect(s.completed).toBe(true);
+    });
+  }
+});
+
 describe('tents game state', () => {
   const def = GAMES.tents;
   const p = def.fromBank(def.bank().medium[0]) as TentsPuzzle;
@@ -199,21 +282,32 @@ describe('pips game state', () => {
   // a domino whose halves differ, so a flipped spot can be wrong
   const k = p.dominoes.findIndex(([a, b], i) => a !== b && !p.regions.some((r) => r.cells.includes(p.solution[i][0]) && r.cells.includes(p.solution[i][1])));
 
-  it('puts dominoes down, tracks mistakes, rewinds and undoes', () => {
+  it('puts dominoes down, takes them back and undoes', () => {
     let s = newPipsGame('p', 'hard', p);
     s = pipsReducer(s, { type: 'put', k, spot: p.solution[k] });
     expect(s.place[k]).toEqual(p.solution[k]);
-    expect(s.mistakes).toBe(0);
     const flipped: [number, number] = [p.solution[k][1], p.solution[k][0]];
-    s = pipsReducer(s, { type: 'put', k, spot: flipped });
-    expect(s.mistakes).toBe(1);
-    expect(firstPipsMistake(s)).toBe(1);
-    s = pipsReducer(s, { type: 'rewind' });
+    s = pipsReducer(s, { type: 'put', k, spot: flipped }); // wrong, but not a counted mistake
+    expect(s.place[k]).toEqual(flipped);
+    expect('mistakes' in s).toBe(false);
+    s = pipsReducer(s, { type: 'undo' });
     expect(s.place[k]).toEqual(p.solution[k]);
     s = pipsReducer(s, { type: 'put', k, spot: null });
     expect(s.place[k]).toBeNull();
     s = pipsReducer(s, { type: 'undo' });
     expect(s.place[k]).toEqual(p.solution[k]);
+  });
+
+  it('clears every domino back to the tray, undoably', () => {
+    let s = newPipsGame('p', 'hard', p);
+    expect(pipsReducer(s, { type: 'clear' })).toBe(s); // nothing to clear
+    s = pipsReducer(s, { type: 'put', k: 0, spot: p.solution[0] });
+    s = pipsReducer(s, { type: 'put', k: 1, spot: p.solution[1] });
+    const before = s.place;
+    s = pipsReducer(s, { type: 'clear' });
+    expect(s.place.every((sp) => sp === null)).toBe(true);
+    s = pipsReducer(s, { type: 'undo' });
+    expect(s.place).toEqual(before);
   });
 
   it('bumps a domino back to the tray when another lands on it', () => {
@@ -290,13 +384,17 @@ describe('pips game state', () => {
     expect(turnSpot(s, 0, c)).toEqual([c, c - 1]);
     // Not one of its cells: no turn.
     expect(turnSpot(s, 0, c - W)).toBeNull();
+    // How far it swings, for the animation: clockwise quarter turns around the pivot.
+    expect(quarterTurns(P, c, [c, c + 1], [c, c + W])).toBe(1);
+    expect(quarterTurns(P, c, [c, c + 1], [c, c - 1])).toBe(2);
+    expect(quarterTurns(P, c, [c, c + 1], [c - W, c])).toBe(3);
+    expect(quarterTurns(P, c + 1, [c, c + 1], [c + 1 - W, c + 1])).toBe(1); // left -> above
   });
 
   it('completes when every domino is down', () => {
     let s = newPipsGame('p', 'hard', p);
     p.solution.forEach((spot, i) => (s = pipsReducer(s, { type: 'put', k: i, spot })));
     expect(s.completed).toBe(true);
-    expect(s.mistakes).toBe(0);
   });
 });
 

@@ -8,7 +8,7 @@ import { buildInfo } from '../version';
 
 type BoolKey = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings];
 
-const TOGGLES: { key: BoolKey; title: string; desc: string }[] = [
+const TOGGLES: { key: BoolKey; title: string; desc: string; needs?: BoolKey }[] = [
   {
     key: 'errorDetection',
     title: 'Error detection',
@@ -18,6 +18,12 @@ const TOGGLES: { key: BoolKey; title: string; desc: string }[] = [
     key: 'autoCandidates',
     title: 'Auto candidates',
     desc: 'Fill every empty cell with all possible pencil marks. You remove candidates as you eliminate them.',
+  },
+  {
+    key: 'cageMath',
+    title: 'Auto candidates: arithmetic',
+    desc: 'Calcudoku and Kakuro: also leave out digits that no combination of their cage or run allows. Off, working out the sums is up to you.',
+    needs: 'autoCandidates',
   },
   {
     key: 'highlightCandidates',
@@ -42,10 +48,12 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.group, { backgroundColor: t.surface, borderColor: t.border }]}>
-          {TOGGLES.map((row, idx) => (
+          {TOGGLES.map((row, idx) => {
+            const off = !!row.needs && !settings[row.needs];
+            return (
             <View
               key={row.key}
-              style={[styles.row, idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }]}
+              style={[styles.row, idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }, off && { opacity: 0.5 }]}
             >
               <View style={{ flex: 1 }}>
                 <Text style={[styles.rowTitle, { color: t.text }]}>{row.title}</Text>
@@ -53,13 +61,15 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
               </View>
               <Switch
                 value={settings[row.key]}
+                disabled={off}
                 onValueChange={(v) => update({ [row.key]: v })}
                 trackColor={{ true: t.accent, false: t.border }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel={row.title}
               />
             </View>
-          ))}
+            );
+          })}
         </View>
 
         <Text style={[styles.section, { color: t.textMuted }]}>THEME</Text>
@@ -85,6 +95,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           <Text style={[styles.rowDesc, { color: t.text }]}>• Long-press a number to enter it in the other mode (pencil ↔ digit).</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Rewind jumps back to just before your first mistake that’s still on the board.</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Hints work from your own pencil marks; cells with none are treated as having every possible candidate.</Text>
+          <Text style={[styles.rowDesc, { color: t.text }]}>• With no cell selected, tap a number to highlight it on the board, placed or not. Tap the selected cell again to let go of it.</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Tap the timer to pause.</Text>
         </View>
 

@@ -30,6 +30,18 @@ export function legalCands(ctx: Ctx, values: number[]): number[] {
   return out;
 }
 
+/** Digits not yet placed in any of the cell's runs, ignoring the sums (0 for filled/black cells). */
+export function basicCands(ctx: Ctx, values: number[]): number[] {
+  const out = new Array<number>(ctx.n).fill(0);
+  for (const c of ctx.whiteCells) {
+    if (values[c]) continue;
+    let m = 0x3fe;
+    for (const q of ctx.peers[c]) if (values[q]) m &= ~bit(values[q]);
+    out[c] = m;
+  }
+  return out;
+}
+
 export function applyStep(ctx: Ctx, s: State, st: PuzzleStep): State {
   const values = s.values.slice();
   const cands = s.cands.slice();
@@ -108,6 +120,7 @@ export function rulesFor(p: KakuroPuzzle): DigitRules {
       // Digits already used in a run are excluded too (combos avoid placed digits).
       return legalCands(ctx, values);
     },
+    basicCandidates: (values: number[]) => basicCands(ctx, values),
   };
 }
 
@@ -125,8 +138,10 @@ export function clues(p: KakuroPuzzle): Map<number, { across?: number; down?: nu
  * Hint from the player's own pencil marks (mirrors the classic-sudoku hint).
  * @param removedCorrect cells where the player explicitly removed the correct
  *   candidate and it is still missing.
+ * @param runMath cells without marks start from the candidates the run sums
+ *   allow; false: from every digit not yet in their runs.
  */
-export function findHint(p: KakuroPuzzle, values: number[], pencil: number[], removedCorrect: number[] = []): PuzzleHint {
+export function findHint(p: KakuroPuzzle, values: number[], pencil: number[], removedCorrect: number[] = [], runMath = true): PuzzleHint {
   const ctx = ctxOf(p);
   const sol = p.solution;
   if (ctx.whiteCells.every((c) => values[c] === sol[c])) return { kind: 'solved', message: 'The puzzle is solved!' };
@@ -143,7 +158,8 @@ export function findHint(p: KakuroPuzzle, values: number[], pencil: number[], re
     };
   }
 
-  const legal = legalCands(ctx, values);
+  // Cells without marks hold every candidate: with run sums, those the sums allow.
+  const legal = runMath ? legalCands(ctx, values) : basicCands(ctx, values);
   const cands = new Array<number>(ctx.n).fill(0);
   for (const c of ctx.whiteCells) if (!values[c]) cands[c] = pencil[c] ? pencil[c] & 0x3fe : legal[c];
   const missing = ctx.whiteCells.filter((c) => !values[c] && !(cands[c] & bit(sol[c])));

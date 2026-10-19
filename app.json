@@ -2,7 +2,7 @@
   "expo": {
     "name": "Sudokou",
     "slug": "sudokou",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "owner": "kirk-baird",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

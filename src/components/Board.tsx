@@ -202,6 +202,7 @@ export function Board(p: Props) {
         candidateGrid={layout.candidateGrid}
         maxDigit={p.maxDigit}
         label={layout.labels?.[i]}
+        labelSpace={!!layout.labels}
         mini={p.mini}
         theme={t}
         onPress={p.onPressCell}

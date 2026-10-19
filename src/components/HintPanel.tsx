@@ -8,9 +8,9 @@ const TIER_LABEL = ['Basic', 'Medium', 'Hard', 'Extra Hard', 'Extreme'];
 
 export function HintPanel(props: {
   hint: PuzzleHint;
-  canRewind: boolean;
+  canRewind?: boolean;
   onApply: () => void;
-  onRewind: () => void;
+  onRewind?: () => void; // none: the game has no Rewind
   onClose: () => void;
   bodyMaxHeight?: number; // default 130
   theme: Theme;
@@ -33,12 +33,12 @@ export function HintPanel(props: {
     case 'wrongValue':
       title = 'Mistake on the board';
       body = hint.message;
-      showRewind = props.canRewind;
+      showRewind = !!props.canRewind && !!props.onRewind;
       break;
     case 'missingCandidate':
       title = 'Candidate eliminated by mistake';
       body = hint.message;
-      showRewind = props.canRewind;
+      showRewind = !!props.canRewind && !!props.onRewind;
       break;
     case 'reveal':
       title = 'Reveal';

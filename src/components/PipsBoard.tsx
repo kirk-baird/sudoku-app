@@ -1,5 +1,5 @@
-import React, { memo, useRef } from 'react';
-import { GestureResponderEvent, Pressable, Text, View } from 'react-native';
+import React, { memo, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, GestureResponderEvent, Platform, Pressable, Text, View, ViewStyle } from 'react-native';
 import { PuzzleStep } from '../engine/common';
 import { PipsPuzzle, Placement, Spot, cellValues, regionLabel, regionStatus } from '../engine/pips';
 import { Turn } from '../game/pipsState';
@@ -130,6 +130,37 @@ export function DominoView(props: {
   );
 }
 
+/** A domino lifted off the board or out of the tray: a little bigger, with a shadow. */
+export const RAISED_SCALE = 1.08;
+export const raisedShadow = (half: number) => ({ borderRadius: half * 0.18, boxShadow: '0px 6px 14px rgba(0, 0, 0, 0.35)' });
+
+const SPIN_MS = 180;
+
+/**
+ * Turns its children from `from` degrees to upright when mounted (remount it,
+ * by key, for each turn), around `origin` (default: its centre).
+ */
+export function Spin(props: { from: number; origin?: [number, number]; style?: ViewStyle; children: React.ReactNode }) {
+  const [angle] = useState(() => new Animated.Value(props.from));
+  useEffect(() => {
+    Animated.timing(angle, { toValue: 0, duration: SPIN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [angle]);
+  const rotate = angle.interpolate({ inputRange: [-360, 360], outputRange: ['-360deg', '360deg'] });
+  return (
+    <Animated.View style={[props.style, props.origin ? { transformOrigin: [props.origin[0], props.origin[1], 0] } : null, { transform: [{ rotate }] }]}>
+      {props.children}
+    </Animated.View>
+  );
+}
+
+/** A placed domino being turned: it swings `deg` degrees clockwise around its half on `pivot`. `id` restarts the swing. */
+export interface PipsSpin {
+  k: number;
+  pivot: number;
+  deg: number;
+  id: number;
+}
+
 const BoardCell = memo(function BoardCell(props: {
   index: number;
   x: number;
@@ -168,7 +199,8 @@ export function PipsBoard(props: {
   puzzle: PipsPuzzle;
   place: Placement;
   cellSize: number;
-  selected?: number | null; // domino highlighted on the board
+  raised?: number | null; // domino lifted on the board, ready to turn or drag
+  spin?: PipsSpin | null; // the raised domino's last turn, animated
   hintStep?: PuzzleStep | null;
   problemCells?: number[];
   hidden?: boolean;
@@ -241,7 +273,16 @@ export function PipsBoard(props: {
   }
 
   // Dominoes on the board (and a ghost for the hint), drawn over the cells but letting taps through.
-  const drawDomino = (key: string, a: number, b: number, ca: number, cb: number, look: { face: string; edge: string; pip: string; width?: number; dashed?: boolean }) => {
+  const drawDomino = (
+    key: string,
+    a: number,
+    b: number,
+    ca: number,
+    cb: number,
+    look: { face: string; edge: string; pip: string; width?: number; dashed?: boolean },
+    raise?: { spin: PipsSpin | null },
+    into: React.ReactNode[] = nodes,
+  ) => {
     const pa = xy(ca);
     const pb = xy(cb);
     const vertical = pa.x === pb.x;
@@ -249,47 +290,77 @@ export function PipsBoard(props: {
     const swap = vertical ? pa.y > pb.y : pa.x > pb.x;
     const half = s - 2 * inset;
     const len = 2 * s + gap - 2 * inset;
-    nodes.push(
-      <View
-        key={key}
-        style={{
-          position: 'absolute',
-          left: first.x + inset,
-          top: first.y + inset,
-          width: vertical ? half : len,
-          height: vertical ? len : half,
-          pointerEvents: 'none',
-        }}
-      >
-        {mini ? (
-          <View style={{ flex: 1, borderRadius: half * 0.2, backgroundColor: look.face, borderWidth: 1, borderColor: look.edge }} />
-        ) : (
-          <DominoView
-            a={swap ? b : a}
-            b={swap ? a : b}
-            half={half}
-            length={len}
-            vertical={vertical}
-            face={look.face}
-            edge={look.edge}
-            pip={look.pip}
-            edgeWidth={look.width}
-            dashed={look.dashed}
-          />
-        )}
-      </View>,
+    const box: ViewStyle = {
+      position: 'absolute',
+      left: first.x + inset,
+      top: first.y + inset,
+      width: vertical ? half : len,
+      height: vertical ? len : half,
+      pointerEvents: 'none',
+    };
+    let face = mini ? (
+      <View style={{ flex: 1, borderRadius: half * 0.2, backgroundColor: look.face, borderWidth: 1, borderColor: look.edge }} />
+    ) : (
+      <DominoView
+        a={swap ? b : a}
+        b={swap ? a : b}
+        half={half}
+        length={len}
+        vertical={vertical}
+        face={look.face}
+        edge={look.edge}
+        pip={look.pip}
+        edgeWidth={look.width}
+        dashed={look.dashed}
+      />
+    );
+    if (!raise) {
+      into.push(
+        <View key={key} style={box}>
+          {face}
+        </View>,
+      );
+      return;
+    }
+    face = <View style={[raisedShadow(half), { transform: [{ translateY: -half * 0.08 }, { scale: RAISED_SCALE }] }]}>{face}</View>;
+    const sp = raise.spin;
+    if (!sp) {
+      into.push(
+        <View key={key} style={box}>
+          {face}
+        </View>,
+      );
+      return;
+    }
+    // Swing around the centre of the half that stays put.
+    const pv = xy(sp.pivot);
+    const origin: [number, number] = [pv.x + s / 2 - (first.x + inset), pv.y + s / 2 - (first.y + inset)];
+    into.push(
+      <Spin key={`${key}s${sp.id}`} from={-sp.deg} origin={origin} style={box}>
+        {face}
+      </Spin>,
     );
   };
+  const raisedNodes: React.ReactNode[] = []; // drawn last, above everything
   place.forEach((spot, k) => {
     if (!spot || k === props.lifted) return;
     const [a, b] = p.dominoes[k];
-    const sel = props.selected === k;
-    drawDomino(`d${k}`, a, b, spot[0], spot[1], {
-      face: t.dominoFace,
-      edge: sel ? t.accent : t.dominoEdge,
-      pip: t.dominoPip,
-      width: sel ? Math.max(2.5, s * 0.07) : undefined,
-    });
+    const up = props.raised === k && !mini;
+    drawDomino(
+      `d${k}`,
+      a,
+      b,
+      spot[0],
+      spot[1],
+      {
+        face: t.dominoFace,
+        edge: up ? t.accent : t.dominoEdge,
+        pip: t.dominoPip,
+        width: up ? Math.max(2.5, s * 0.07) : undefined,
+      },
+      up ? { spin: props.spin?.k === k ? props.spin : null } : undefined,
+      up ? raisedNodes : nodes,
+    );
   });
   const ghost = props.hidden ? null : props.hintStep?.placements;
   if (ghost && ghost.length === 2 && !place.some((sp) => sp && sp.includes(ghost[0].cell) && sp.includes(ghost[1].cell))) {
@@ -358,6 +429,7 @@ export function PipsBoard(props: {
     });
   }
 
+  nodes.push(...raisedNodes);
   return <View style={{ width: size.width, height: size.height }}>{nodes}</View>;
 }
 
@@ -404,6 +476,7 @@ function TrayDomino(props: {
   a: number;
   b: number;
   turn: Turn;
+  spin: number; // changes each time it is turned (0: not turned yet), swinging it round
   half: number;
   selected: boolean;
   lifted: boolean;
@@ -443,7 +516,11 @@ function TrayDomino(props: {
           accessibilityHint={sel ? 'Tap again to turn it' : 'Tap to pick it up, or drag it onto the board'}
           style={{ width: half * 2, height: half * 2, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: sel ? -4 : 0 }] }}
         >
-          <TurnedDomino a={a} b={b} o={props.turn} half={half} edge={sel ? t.accent : t.dominoEdge} edgeWidth={sel ? 3 : undefined} theme={t} />
+          <Spin key={props.spin} from={props.spin ? -90 : 0}>
+            <View style={sel ? [raisedShadow(half), { transform: [{ scale: RAISED_SCALE }] }] : null}>
+              <TurnedDomino a={a} b={b} o={props.turn} half={half} edge={sel ? t.accent : t.dominoEdge} edgeWidth={sel ? 3 : undefined} theme={t} />
+            </View>
+          </Spin>
         </Pressable>
       )}
     </View>
@@ -458,6 +535,7 @@ export function DominoTray(props: {
   puzzle: PipsPuzzle;
   place: Placement;
   turns: Turn[];
+  spin: { k: number; id: number } | null; // the last tray domino turned
   selected: number | null;
   lifted: number | null;
   half: number;
@@ -478,6 +556,7 @@ export function DominoTray(props: {
             a={a}
             b={b}
             turn={props.turns[k] ?? 0}
+            spin={props.spin?.k === k ? props.spin.id : 0}
             half={half}
             selected={props.selected === k}
             lifted={props.lifted === k}

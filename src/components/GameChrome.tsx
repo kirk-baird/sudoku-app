@@ -152,7 +152,7 @@ export function CompletionDialog(props: {
   isBest: boolean;
   difficulty: Difficulty;
   ms: number;
-  mistakes: number;
+  mistakes: number | null; // null: not counted
   hintsUsed: number;
   onHome: () => void;
   onNewGame: () => void;
@@ -173,7 +173,7 @@ export function CompletionDialog(props: {
       <View style={{ gap: 6 }}>
         <StatRow label="Difficulty" value={DIFFICULTY_NAMES[props.difficulty]} theme={t} />
         <StatRow label="Time" value={formatTime(props.ms)} theme={t} />
-        <StatRow label="Mistakes" value={String(props.mistakes)} theme={t} />
+        {props.mistakes != null ? <StatRow label="Mistakes" value={String(props.mistakes)} theme={t} /> : null}
         <StatRow label="Hints" value={String(props.hintsUsed)} theme={t} />
         {props.hintsUsed > 0 ? (
           <Text style={{ color: t.textMuted, fontSize: 13, lineHeight: 18, marginTop: 6 }}>

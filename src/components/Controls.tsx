@@ -43,6 +43,7 @@ export function NumberPad(props: {
   counts: number[]; // placed (correct) count per digit (index 1..maxDigit)
   totals: number[] | null; // expected count per digit; null hides the counters
   pencilMode: boolean;
+  highlighted?: number; // digit the pad is highlighting on the board (no cell selected)
   onDigit: (d: number) => void;
   onLongDigit: (d: number) => void;
   disabled?: boolean;
@@ -59,6 +60,7 @@ export function NumberPad(props: {
           {row.map((d) => {
             const remaining = props.totals ? props.totals[d] - props.counts[d] : null;
             const done = remaining != null && remaining <= 0;
+            const lit = props.highlighted === d;
             return (
               <Pressable
                 key={d}
@@ -69,9 +71,10 @@ export function NumberPad(props: {
                 style={({ pressed }) => [
                   styles.padKey,
                   compact && styles.padKeyCompact,
-                  { backgroundColor: pressed ? t.surfaceAlt : t.surface, borderColor: t.border },
+                  { backgroundColor: pressed ? t.surfaceAlt : lit ? t.cellSame : t.surface, borderColor: lit ? t.accent : t.border },
                 ]}
                 accessibilityLabel={`${props.pencilMode ? 'Pencil ' : ''}${props.symbols[d]}`}
+                accessibilityState={{ selected: lit }}
               >
                 <Text
                   style={[

@@ -1,13 +1,9 @@
-// Pure game state for Pips: domino placement, turning, undo,
-// rewind-to-first-mistake, hints, and where a tapped or dragged domino lands.
+// Pure game state for Pips: domino placement, turning, undo, clearing the
+// board, hints, and where a tapped or dragged domino lands. Pips is solved by
+// trial and error, so wrong placements are not counted as mistakes.
 
 import { Difficulty } from '../engine/common';
-import { PipsPuzzle, Placement, Spot, isSolved, isWrongSpot } from '../engine/pips';
-
-export interface PipsMistake {
-  k: number; // domino
-  spot: Spot; // where it was wrongly put
-}
+import { PipsPuzzle, Placement, Spot, isSolved } from '../engine/pips';
 
 export interface PipsGameState {
   id: string;
@@ -15,8 +11,7 @@ export interface PipsGameState {
   payload: PipsPuzzle;
   difficulty: Difficulty;
   place: Placement; // per domino: its spot, or null while in the tray
-  history: { before: Placement; mistakes: PipsMistake[] }[];
-  mistakes: number;
+  history: { before: Placement }[];
   hintsUsed: number;
   elapsedMs: number;
   completed: boolean;
@@ -26,7 +21,7 @@ export interface PipsGameState {
 export type PipsAction =
   | { type: 'put'; k: number; spot: Spot | null } // null takes it back to the tray
   | { type: 'undo' }
-  | { type: 'rewind' }
+  | { type: 'clear' } // every domino back to the tray
   | { type: 'hintShown' };
 
 export function newPipsGame(id: string, difficulty: Difficulty, p: PipsPuzzle): PipsGameState {
@@ -37,7 +32,6 @@ export function newPipsGame(id: string, difficulty: Difficulty, p: PipsPuzzle): 
     difficulty,
     place: p.dominoes.map(() => null),
     history: [],
-    mistakes: 0,
     hintsUsed: 0,
     elapsedMs: 0,
     completed: false,
@@ -45,10 +39,6 @@ export function newPipsGame(id: string, difficulty: Difficulty, p: PipsPuzzle): 
 }
 
 const sameCells = (a: Spot | null, b: Spot) => !!a && a[0] === b[0] && a[1] === b[1];
-
-export function firstPipsMistake(s: PipsGameState): number {
-  return s.history.findIndex((h) => h.mistakes.some((m) => sameCells(s.place[m.k], m.spot)));
-}
 
 /** Which domino covers each cell (grid index -> domino). */
 export function occupancy(place: Placement): Map<number, number> {
@@ -78,24 +68,16 @@ export function pipsReducer(s: PipsGameState, a: PipsAction): PipsGameState {
           if (j !== a.k && sp && (a.spot!.includes(sp[0]) || a.spot!.includes(sp[1]))) place[j] = null;
         });
       }
-      const mistakes = a.spot && isWrongSpot(s.payload, a.k, a.spot) ? [{ k: a.k, spot: a.spot }] : [];
-      return {
-        ...s,
-        place,
-        history: [...s.history, { before: s.place, mistakes }],
-        mistakes: s.mistakes + mistakes.length,
-        completed: isSolved(s.payload, place),
-      };
+      return { ...s, place, history: [...s.history, { before: s.place }], completed: isSolved(s.payload, place) };
     }
     case 'undo': {
       const last = s.history[s.history.length - 1];
       if (!last) return s;
       return { ...s, place: last.before, history: s.history.slice(0, -1) };
     }
-    case 'rewind': {
-      const idx = firstPipsMistake(s);
-      if (idx < 0) return s;
-      return { ...s, place: s.history[idx].before, history: s.history.slice(0, idx) };
+    case 'clear': {
+      if (s.place.every((sp) => !sp)) return s;
+      return { ...s, place: s.place.map(() => null), history: [...s.history, { before: s.place }] };
     }
   }
   return s;
@@ -162,6 +144,18 @@ export function tapSpot(s: PipsGameState, k: number, cell: number, o: Turn): Spo
   return options.find((sp) => free(sp[0]) && free(sp[1])) ?? options[0] ?? null;
 }
 
+/** Which way `cell` lies from `from` (0 right, 1 down, 2 left, 3 up), or -1 if they don't touch. */
+function dirTo(p: PipsPuzzle, from: number, cell: number): number {
+  return [0, 1, 2, 3].findIndex((d) => step(p, from, d) === cell);
+}
+
+/** Clockwise quarter turns (0–3) that take a domino from `before` to `after` around `pivot`, a cell of both. */
+export function quarterTurns(p: PipsPuzzle, pivot: number, before: Spot, after: Spot): number {
+  const a = dirTo(p, pivot, before[0] === pivot ? before[1] : before[0]);
+  const b = dirTo(p, pivot, after[0] === pivot ? after[1] : after[0]);
+  return a < 0 || b < 0 ? 0 : (b - a + 4) % 4;
+}
+
 /**
  * Turns a placed domino a quarter turn clockwise around the half on `pivot`
  * (one of its cells): that half stays put and the other swings from right to
@@ -175,7 +169,7 @@ export function turnSpot(s: PipsGameState, k: number, pivot: number): Spot | nul
   const occ = occupancy(s.place);
   const free = (j: number) => !occ.has(j) || occ.get(j) === k;
   const other = cur[0] === pivot ? cur[1] : cur[0];
-  const dir = [0, 1, 2, 3].find((d) => step(p, pivot, d) === other)!;
+  const dir = dirTo(p, pivot, other);
   for (let t = 1; t < 4; t++) {
     const j = step(p, pivot, (dir + t) % 4);
     if (j >= 0 && free(j)) return cur[0] === pivot ? [pivot, j] : [j, pivot];
